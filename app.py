@@ -24,9 +24,11 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "govconnect_free_secure_sess
 #  EXTERNAL SERVICE CONFIGURATIONS
 # ══════════════════════════════════════════
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
+
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_KEY,
+    api_key=OPENROUTER_KEY or "dummy-key",  # prevents crash at startup
 )
 FREE_MODEL = "openrouter/free"
 
