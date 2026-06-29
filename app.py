@@ -20,15 +20,14 @@ UPLOAD_FOLDER = "uploads"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "govconnect_free_secure_session_token_19283")
+
 # ══════════════════════════════════════════
 #  EXTERNAL SERVICE CONFIGURATIONS
 # ══════════════════════════════════════════
-OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
-OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY")
-
+OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY") or "dummy-key"
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_KEY or "dummy-key",  # prevents crash at startup
+    api_key=OPENROUTER_KEY,
 )
 FREE_MODEL = "openrouter/free"
 
@@ -36,26 +35,40 @@ FREE_MODEL = "openrouter/free"
 S3_BUCKET = os.environ.get("AWS_S3_BUCKET_NAME")
 s3_client = boto3.client(
     's3',
-    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY")
+    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID") or "dummy",
+    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY") or "dummy"
 )
 
 # ══════════════════════════════════════════
 #  MYSQL CONFIGURATION ENGINE
+#  Supports Railway's MYSQL_URL or individual variables
 # ══════════════════════════════════════════
-DB_HOST = os.environ.get("MYSQL_HOST", "localhost")
-DB_USER = os.environ.get("MYSQL_USER", "root")
-DB_PASSWORD = os.environ.get("MYSQL_PASSWORD", "hari_140mac")
-DB_NAME = os.environ.get("MYSQL_DB", "govconnect_db")
+import urllib.parse
 
 def get_db_connection():
+    # Railway provides MYSQL_URL — use it directly if available
+    mysql_url = os.environ.get("MYSQL_URL") or os.environ.get("MYSQL_PUBLIC_URL")
+    if mysql_url:
+        # Parse the URL: mysql://user:password@host:port/dbname
+        parsed = urllib.parse.urlparse(mysql_url)
+        return pymysql.connect(
+            host=parsed.hostname,
+            port=parsed.port or 3306,
+            user=parsed.username,
+            password=parsed.password,
+            database=parsed.path.lstrip('/'),
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=10
+        )
+    # Fallback to individual environment variables
     return pymysql.connect(
-        host=DB_HOST,
-        port=int(os.environ.get("MYSQL_PORT", 3306)),
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        cursorclass=pymysql.cursors.DictCursor
+        host=os.environ.get("MYSQLHOST") or os.environ.get("MYSQL_HOST", "localhost"),
+        port=int(os.environ.get("MYSQLPORT") or os.environ.get("MYSQL_PORT") or 3306),
+        user=os.environ.get("MYSQLUSER") or os.environ.get("MYSQL_USER", "root"),
+        password=os.environ.get("MYSQLPASSWORD") or os.environ.get("MYSQL_PASSWORD", ""),
+        database=os.environ.get("MYSQLDATABASE") or os.environ.get("MYSQL_DB", "railway"),
+        cursorclass=pymysql.cursors.DictCursor,
+        connect_timeout=10
     )
 
 def init_db():
@@ -103,8 +116,6 @@ def init_db():
     title VARCHAR(150) NOT NULL,
     description TEXT NOT NULL,
     location VARCHAR(150) NOT NULL,
-    latitude DECIMAL(10, 7) DEFAULT NULL,
-    longitude DECIMAL(10, 7) DEFAULT NULL,
 
     department VARCHAR(100),
 
@@ -344,17 +355,14 @@ def submit_complaint():
         return jsonify({"error": str(e)}), 500
     finally:
         conn.close()
+
 @app.route('/api/complaints')
 def get_complaints():
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-                cursor.execute("""
-                SELECT *
-                FROM complaints
-                ORDER BY created_at DESC
-            """)
-        complaints = cursor.fetchall()
+            cursor.execute("SELECT * FROM complaints ORDER BY created_at DESC")
+            complaints = cursor.fetchall()
         return jsonify(complaints)
     finally:
         conn.close()
