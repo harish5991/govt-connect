@@ -51,6 +51,7 @@ DB_NAME = os.environ.get("MYSQL_DB", "govconnect_db")
 def get_db_connection():
     return pymysql.connect(
         host=DB_HOST,
+        port=int(os.environ.get("MYSQL_PORT", 3306)),
         user=DB_USER,
         password=DB_PASSWORD,
         database=DB_NAME,
