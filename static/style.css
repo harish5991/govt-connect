@@ -5,6 +5,20 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: var(--text);
+  min-height: 100vh;
+  
+  /* Adds a smooth 94% opaque dark blend over the image to preserve your custom theme */
+  background: linear-gradient(rgba(10, 14, 26, 0.94), rgba(10, 14, 26, 0.94)), 
+              url('https://images.unsplash.com/photo-1639322537228-f710d846310a?q=80&w=1920&auto=format&fit=crop');
+              
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-attachment: fixed; /* Keeps background still while pages scroll smoothly */
+}
 
 /* HEADER */
 .header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;}
