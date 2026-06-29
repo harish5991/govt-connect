@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import re
 import json
@@ -13,6 +15,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
 from botocore.exceptions import NoCredentialsError
 from fpdf import FPDF
+import requests
 
 app = Flask(__name__)
 
@@ -160,9 +163,23 @@ init_db()
 # ══════════════════════════════════════════
 #  UTILITY INFRASTRUCTURE PIPELINES
 # ══════════════════════════════════════════
-def send_sms_mock(phone, message):
-    print(f"📡 [SMS GATEWAY OUTBOUND] To {phone}: {message}")
-    return True
+def send_real_otp(phone, otp):
+    api_key = os.environ.get("FAST2SMS_API_KEY")
+    if not api_key:
+        print(f"[DEV MODE] OTP for {phone}: {otp}")
+        return True
+    
+    url = "https://www.fast2sms.com/dev/bulkV2"
+    response = requests.post(url,
+        json={
+            "variables_values": otp,
+            "route": "otp",
+            "numbers": phone
+        },
+        headers={"authorization": api_key}
+    )
+    result = response.json()
+    return result.get("return", False)
 
 def upload_to_storage_service(file_obj):
     filename = secure_filename(file_obj.filename)
@@ -224,7 +241,7 @@ def trigger_otp():
         with conn.cursor() as cursor:
             cursor.execute('UPDATE citizens SET otp_hash = %s, otp_expiry = %s WHERE mobile = %s', (otp_hash, expiry, mobile))
         conn.commit()
-        send_sms_mock(mobile, f"GovConnect Aadhaar Security Verification PIN: {otp_code}. Valid for 10 minutes.")
+        send_real_otp(mobile, f"GovConnect Aadhaar Security Verification PIN: {otp_code}. Valid for 10 minutes.")
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -349,7 +366,7 @@ def submit_complaint():
             cursor.execute('INSERT INTO audit_logs (actor, action, target_ref, details) VALUES (%s, %s, %s, %s)', 
                            (payload.get('mobile', 'ANONYMOUS'), "COMPLAINT_SUBMISSION", ref_id, f"Grievance recorded. Channel Language: {payload.get('lang', 'en')}"))
         conn.commit()
-        send_sms_mock(payload.get('mobile'), f"Grievance submitted. Reference Token ID: {ref_id}. Check status via tracking hub.")
+        send_real_otp(payload.get('mobile'), f"Grievance submitted. Reference Token ID: {ref_id}. Check status via tracking hub.")
         return jsonify({"success": True, "ref_id": ref_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -394,7 +411,7 @@ def update_complaint_status():
                            (data.get('official_email', 'OFFICIAL'), "STATUS_UPDATE", data['ref_id'], f"Status modified matrix set to: {data['status']}"))
         conn.commit()
         if row and row['citizen_mobile']:
-            send_sms_mock(row['citizen_mobile'], f"Status Alert: Your grievance {data['ref_id']} has been moved to '{data['status']}'.")
+            send_real_otp(row['citizen_mobile'], f"Status Alert: Your grievance {data['ref_id']} has been moved to '{data['status']}'.")
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
