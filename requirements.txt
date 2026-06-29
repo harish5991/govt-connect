@@ -1,0 +1,9 @@
+Flask==3.0.3
+pymysql==1.1.1
+openai==1.55.0
+gunicorn==22.0.0
+httpx==0.27.2
+boto3==1.34.0
+fpdf2==2.7.8
+Werkzeug==3.0.4
+python-dotenv==1.0.1
