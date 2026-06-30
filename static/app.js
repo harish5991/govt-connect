@@ -1,4 +1,3 @@
-
 // ══════════════════════════════════════════
 //  STATE MANAGEMENT VARIABLES
 // ══════════════════════════════════════════
@@ -61,15 +60,34 @@ function executeLanguageTransformation(selectedLangCode) {
 }
 
 function extractBrowserSpatialCoordinates() {
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(pos => {
-      globalLatitudeRef = pos.coords.latitude;
-      globalLongitudeRef = pos.coords.longitude;
-      document.getElementById('gis-coordinates-output').textContent = `GIS Anchored Successfully: Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)}`;
-    }, err => {
-      document.getElementById('gis-coordinates-output').textContent = "Failed to capture geolocation array coordinates parameters.";
-    });
+  const out = document.getElementById('gis-coordinates-output');
+  if (!navigator.geolocation) {
+    out.textContent = "Geolocation is not supported by this browser.";
+    return;
   }
+
+  out.textContent = "📍 Detecting your location...";
+
+  navigator.geolocation.getCurrentPosition(async pos => {
+    globalLatitudeRef = pos.coords.latitude;
+    globalLongitudeRef = pos.coords.longitude;
+
+    try {
+      const res = await fetch(`/api/reverse-geocode?lat=${globalLatitudeRef}&lon=${globalLongitudeRef}`);
+      const data = await res.json();
+      const placeName = data.place_name || `Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)}`;
+      out.textContent = `GIS Anchored Successfully: ${placeName}`;
+
+      const locInput = document.getElementById('loc-inp');
+      if (locInput && !locInput.value && data.place_name) {
+        locInput.value = data.place_name;
+      }
+    } catch (e) {
+      out.textContent = `GIS Anchored Successfully: Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)} (place name lookup failed)`;
+    }
+  }, err => {
+    out.textContent = "Failed to capture geolocation array coordinates parameters.";
+  });
 }
 
 // ══════════════════════════════════════════
@@ -302,3 +320,37 @@ function doLogout() { location.reload(); }
 function openCCTV() { showPage('page-cctv'); }
 function goBackFromCCTV() { showPage(prevPage); }
 function resetForm() { location.reload(); }
+
+// ══════════════════════════════════════════
+//  PROFILE DETAILS MODAL
+// ══════════════════════════════════════════
+function openProfileModal() {
+  const body = document.getElementById('profile-modal-body');
+  if (!currentUser) {
+    body.textContent = "You're not signed in yet. Please log in to view your profile.";
+  } else if (currentRole === 'citizen') {
+    body.textContent =
+`Name: ${currentUser.name || '—'}
+Mobile: ${currentUser.mobile || '—'}
+Email: ${currentUser.email || '—'}
+Role: Citizen`;
+  } else if (currentRole === 'official') {
+    const depts = Array.isArray(currentUser.depts) ? currentUser.depts.join(', ') : (currentUser.depts || '—');
+    body.textContent =
+`Name: ${currentUser.name || '—'}
+Designation: ${currentUser.desig || '—'}
+Email: ${currentUser.email || '—'}
+District: ${currentUser.district || '—'}
+Department(s): ${depts}
+Role: Government Official`;
+  } else {
+    body.textContent = "Profile details are unavailable.";
+  }
+  document.getElementById('profile-modal-bg').classList.add('open');
+}
+
+function closeProfileModal(event) {
+  if (event.target.id === 'profile-modal-bg') {
+    document.getElementById('profile-modal-bg').classList.remove('open');
+  }
+}
