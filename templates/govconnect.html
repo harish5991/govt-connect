@@ -23,7 +23,7 @@
   <div class="header-right">
     <span class="badge-ai">AI-Powered · Beta</span>
     <button class="btn-cctv" id="btn-cctv" onclick="openCCTV()">📡 CCTV Monitor</button>
-    <div class="user-chip" id="user-chip">
+    <div class="user-chip" id="user-chip" onclick="openProfileModal()" style="cursor:pointer;">
       <div class="user-avatar" id="hdr-avatar">U</div>
       <span id="hdr-name">User</span>
     </div>
@@ -53,6 +53,17 @@
     </div>
     <div class="modal-footer">
       <button class="btn-primary" style="width: 100%; justify-content: center;" onclick="validateIdentityVerificationToken()">Authenticate Sign-in Check</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="profile-modal-bg" onclick="closeProfileModal(event)">
+  <div class="modal">
+    <h3>👤 My Profile</h3>
+    <p>Your account details on GovConnect</p>
+    <div class="modal-body" id="profile-modal-body">Loading profile...</div>
+    <div class="modal-footer">
+      <button class="btn-modal-close" onclick="document.getElementById('profile-modal-bg').classList.remove('open')">Close</button>
     </div>
   </div>
 </div>
@@ -268,6 +279,7 @@
 
 <div class="page" id="page-citizen-app">
   <div class="container">
+    <button class="btn-back" onclick="showPage('page-landing')" style="margin-bottom: 12px;">← Back</button>
     <div class="hero">
       <h1 id="app-hero-title">Report. Route. <span>Resolve.</span></h1>
       <p>Describe your civic issue or upload a photo. Our AI identifies the right government official and drafts a formal complaint automatically.</p>
@@ -349,6 +361,7 @@
 
 <div class="page" id="page-official-dash">
   <div class="official-dash">
+    <button class="btn-back" onclick="showPage('page-landing')" style="margin-bottom: 12px;">← Back</button>
     <div class="dash-welcome">
       <div style="font-size:36px">🏅</div>
       <div>
