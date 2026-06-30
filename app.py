@@ -168,18 +168,23 @@ def send_real_otp(phone, otp):
     if not api_key:
         print(f"[DEV MODE] OTP for {phone}: {otp}")
         return True
-    
+
     url = "https://www.fast2sms.com/dev/bulkV2"
-    response = requests.post(url,
-        json={
-            "variables_values": otp,
-            "route": "otp",
-            "numbers": phone
-        },
-        headers={"authorization": api_key}
-    )
-    result = response.json()
-    return result.get("return", False)
+    try:
+        response = requests.post(url,
+            json={
+                "variables_values": otp,
+                "route": "otp",
+                "numbers": phone
+            },
+            headers={"authorization": api_key}
+        )
+        result = response.json()
+        print(f"[FAST2SMS RESPONSE] status={response.status_code} body={result}")
+        return result.get("return", False)
+    except Exception as e:
+        print(f"[FAST2SMS ERROR] {e}")
+        return False
 
 def upload_to_storage_service(file_obj):
     filename = secure_filename(file_obj.filename)
