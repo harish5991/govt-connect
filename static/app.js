@@ -207,6 +207,7 @@ function officialLogin() {
       currentUser = data.user; currentRole = 'official';
       document.getElementById('dash-name').textContent = "Welcome, " + data.user.name;
       document.getElementById('dash-dept').textContent = data.user.district + " Jurisdiction Portal Engine";
+      document.getElementById('btn-cctv').style.display = 'inline-block';
       hydrateDepartmentalAnalyticsMetrics();
       showPage('page-official-dash');
     }
@@ -316,7 +317,7 @@ async function sendComplaint() {
   }
 }
 
-function doLogout() { location.reload(); }
+function doLogout() { location.reload();}
 function openCCTV() { showPage('page-cctv'); }
 function goBackFromCCTV() { showPage(prevPage); }
 function resetForm() { location.reload(); }
