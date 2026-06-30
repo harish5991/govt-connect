@@ -177,11 +177,15 @@ def send_real_otp(phone, otp):
                 "route": "otp",
                 "numbers": phone
             },
-            headers={"authorization": api_key}
+            headers={"authorization": api_key},
+            timeout=10
         )
         result = response.json()
         print(f"[FAST2SMS RESPONSE] status={response.status_code} body={result}")
         return result.get("return", False)
+    except requests.exceptions.Timeout:
+        print(f"[FAST2SMS ERROR] Request timed out for {phone}")
+        return False
     except Exception as e:
         print(f"[FAST2SMS ERROR] {e}")
         return False
