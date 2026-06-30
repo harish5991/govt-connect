@@ -204,6 +204,36 @@ def upload_to_storage_service(file_obj):
 def index():
     return render_template('govconnect.html')
 
+@app.route('/api/reverse-geocode', methods=['GET'])
+def reverse_geocode():
+    lat = request.args.get('lat')
+    lon = request.args.get('lon')
+    if not lat or not lon:
+        return jsonify({"error": "lat and lon are required"}), 400
+
+    try:
+        res = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"format": "json", "lat": lat, "lon": lon, "zoom": 16, "addressdetails": 1},
+            headers={"User-Agent": "GovConnect-CivicApp/1.0"},
+            timeout=5
+        )
+        data = res.json()
+        address = data.get("address", {})
+
+        parts = [
+            address.get("neighbourhood") or address.get("suburb") or address.get("locality"),
+            address.get("road"),
+            address.get("city") or address.get("town") or address.get("village"),
+            address.get("state_district"),
+            address.get("state")
+        ]
+        place_name = ", ".join([p for p in parts if p]) or data.get("display_name")
+
+        return jsonify({"success": True, "place_name": place_name, "raw": data.get("display_name")})
+    except Exception as e:
+        return jsonify({"error": "Reverse geocoding failed", "details": str(e)}), 500
+
 @app.route('/api/auth/citizen-signup', methods=['POST'])
 def citizen_signup():
     data = request.json
