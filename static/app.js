@@ -187,6 +187,7 @@ function loginAsCitizen(user) {
   document.getElementById('hdr-name').textContent = user.name.split(' ')[0];
   document.getElementById('user-chip').style.display = 'flex';
   document.getElementById('name-inp').value = user.name;
+  document.getElementById('btn-cctv').style.display = 'none';
   showPage('page-citizen-app');
 }
 
