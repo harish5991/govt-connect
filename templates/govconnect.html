@@ -277,24 +277,26 @@
   </div>
 </div>
   <!-- Home Page Section -->
-<div id="home-page" class="page-view">
-    <h2>Welcome to Govt-Connect</h2>
-    <p>This application allows citizens to seamlessly report local grievances directly to relevant authorities. Choose your preferred language below to proceed to the complaint registration form.</p>
+<div class="page" id="page-citizen-home">
+  <div class="container" style="max-width: 700px; text-align: center; padding-top: 40px;">
+    <div style="font-size: 50px; margin-bottom: 20px;">🏛️</div>
+    <h2 style="font-size: 28px; margin-bottom: 12px; font-weight: 700;">Citizen Hub</h2>
+    <p style="color: var(--subtle); font-size: 15px; line-height: 1.6; margin-bottom: 35px;">
+      Welcome to GovConnect. You can report civic issues (like road damage, water leakage, or power disruptions) directly to the municipal authorities. Select your language below to proceed to the complaint registration dashboard.
+    </p>
     
-    <div class="language-selection">
-        <!-- English Button -->
-        <button class="btn-primary lang-btn" onclick="navigateToComplaint('en')">
-            Register Complaint
-        </button>
-        <!-- Hindi Button -->
-        <button class="btn-primary lang-btn" onclick="navigateToComplaint('hi')">
-            शिकायत दर्ज करें
-        </button>
-        <!-- Telugu Button -->
-        <button class="btn-primary lang-btn" onclick="navigateToComplaint('te')">
-            ఫిర్యాదు నమోదు చేయండి
-        </button>
+    <div style="display: flex; flex-direction: column; gap: 14px; max-width: 400px; margin: 0 auto;">
+      <button class="btn-primary" style="justify-content: center; padding: 14px;" onclick="startComplaintRegistration('en')">
+        📝 Register Complaint (English)
+      </button>
+      <button class="btn-primary" style="justify-content: center; padding: 14px; background: linear-gradient(135deg, #f59e0b, #d97706);" onclick="startComplaintRegistration('hi')">
+        ✍️ शिकायत दर्ज करें (Hindi)
+      </button>
+      <button class="btn-primary" style="justify-content: center; padding: 14px; background: linear-gradient(135deg, var(--accent2), #4f46e5);" onclick="startComplaintRegistration('te')">
+        📋 フィర్యాదు నమోదు చేయండి (Telugu)
+      </button>
     </div>
+  </div>
 </div>
 
 <div class="page" id="page-citizen-app">
