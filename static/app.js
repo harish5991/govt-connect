@@ -75,18 +75,23 @@ function extractBrowserSpatialCoordinates() {
     try {
       const res = await fetch(`/api/reverse-geocode?lat=${globalLatitudeRef}&lon=${globalLongitudeRef}`);
       const data = await res.json();
-      const placeName = data.place_name || `Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)}`;
-      out.textContent = `GIS Anchored Successfully: ${placeName}`;
-
-      const locInput = document.getElementById('loc-inp');
-      if (locInput && !locInput.value && data.place_name) {
-        locInput.value = data.place_name;
+      
+      if (data.success && data.place_name) {
+        out.textContent = `GIS Anchored Successfully: ${data.place_name}`;
+        const locInput = document.getElementById('loc-inp');
+        if (locInput && !locInput.value) {
+          locInput.value = data.place_name;
+        }
+      } else {
+        // Fallback directly to raw coordinates if API returned an error structure
+        out.textContent = `📍 GIS Anchored: Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)}`;
       }
     } catch (e) {
-      out.textContent = `GIS Anchored Successfully: Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)} (place name lookup failed)`;
+      // Fallback directly to raw coordinates if network request fails entirely
+      out.textContent = `📍 GIS Anchored: Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)}`;
     }
   }, err => {
-    out.textContent = "Failed to capture geolocation array coordinates parameters.";
+    out.textContent = "Location access denied. Please check your browser permissions.";
   });
 }
 
