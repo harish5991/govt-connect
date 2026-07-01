@@ -4,7 +4,7 @@
 const TRANSLATION_MATRIX_RESOURCES = {
   en: { landingTitle: "Welcome to GovConnect", appHero: "Report. Route. Resolve." },
   te: { landingTitle: "గవర్నమెంట్ కనెక్ట్ కి స్వాగతం", appHero: "నివేదించండి. మార్గదర్శి. పరిష్కరించండి." },
-  hi: { landingTitle: "गॉवकनेक्ट में आपका स्वागत है", appHero: "शिकायत करें. मार्गदर्शन करें. समाधान पाएं." }
+  hi: { landingTitle: "गॉवकनेक्ट में स्वागत है", appHero: "शिकायत करें. मार्गदर्शन करें. समाधान पाएं." }
 };
 
 let activeSystemLang = 'en';
@@ -12,10 +12,18 @@ let globalLatitudeRef = null;
 let globalLongitudeRef = null;
 let currentTrackingRefId = null;
 
+// Comprehensive Public Utility & Government Departments for Telangana & Andhra Pradesh
 const DEPTS = [
-  {id:'ghmc', icon:'🏙️', name:'GHMC — Greater Hyderabad Municipal Corporation'},
-  {id:'hmwssb', icon:'💧', name:'HMWS&SB — Water & Sewerage Board'},
-  {id:'tsspdcl', icon:'⚡', name:'TSSPDCL — Southern Power Distribution'}
+  {id:'maud', icon:'🏙️', name:'MA&UD — Municipal Administration & Urban Development (GHMC/GVMC/VMC)'},
+  {id:'trans', icon:'🚌', name:'Transport Department & Road Transport Authority (TSRTA/AP_RTO)'},
+  {id:'power', icon:'⚡', name:'Energy Department / Power Distribution (TSSPDCL / TSNPDCL / APEPDCL / APSPDCL)'},
+  {id:'water', icon:'💧', name:'Water Supply & Sewerage Board (HMWS&SB / Public Health Engineering)'},
+  {id:'home', icon:'🚓', name:'Home Department (State Police, Traffic Enforcement & Law Control)'},
+  {id:'r_b', icon:'🛣️', name:'R&B — Roads and Buildings Department'},
+  {id:'panchayat', icon:'🏡', name:'Panchayat Raj and Rural Development'},
+  {id:'revenue', icon:'📜', name:'Revenue, Land Registration & Land Records Department (CCLA)'},
+  {id:'supplies', icon:'🌾', name:'Consumer Affairs, Food & Civil Supplies'},
+  {id:'health', icon:'🏥', name:'Health, Medical & Family Welfare Department'}
 ];
 
 const CAMS = [
