@@ -408,3 +408,66 @@ function toggleDeptSelection(id) {
     }).join('');
   }
 }
+async function officialSignup() {
+  const email = document.getElementById('os-email').value.trim();
+  const empid = document.getElementById('os-empid').value.trim();
+  const name = document.getElementById('os-name').value.trim();
+  const desig = document.getElementById('os-desig').value.trim();
+  const phone = document.getElementById('os-phone').value.trim();
+  const password = document.getElementById('os-pw').value;
+  const passwordConfirm = document.getElementById('os-pw2').value;
+  const state = document.getElementById('os-state').value;
+  const district = document.getElementById('os-district').value.trim();
+
+  // Validate the required inputs cleanly
+  if (!email || !empid || !name || !desig || !phone || !password || !state || !district) {
+    document.getElementById('os-err').style.display = 'block';
+    document.getElementById('os-err').textContent = "Please fill all required variables matrix fields.";
+    return;
+  }
+
+  if (password !== passwordConfirm) {
+    document.getElementById('os-err').style.display = 'block';
+    document.getElementById('os-err').textContent = "Passwords do not match.";
+    return;
+  }
+
+  if (selectedDepts.size === 0) {
+    document.getElementById('os-err').style.display = 'block';
+    document.getElementById('os-err').textContent = "Please pick at least one primary department tracking vector.";
+    return;
+  }
+
+  const payload = {
+    email,
+    empid,
+    name,
+    desig,
+    phone,
+    password,
+    state,
+    district,
+    depts: Array.from(selectedDepts) // Encodes selection array cleanly
+  };
+
+  try {
+    const res = await fetch('/api/auth/official-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    const data = await res.json();
+    
+    if (data.error) {
+      document.getElementById('os-err').style.display = 'block';
+      document.getElementById('os-err').textContent = data.error;
+    } else {
+      document.getElementById('os-err').style.display = 'none';
+      alert("Official Registration Successful! Please sign in.");
+      showPage('page-o-login');
+    }
+  } catch (e) {
+    alert("Connection error executing official registration loop registry.");
+  }
+}
