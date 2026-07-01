@@ -365,3 +365,46 @@ function closeProfileModal(event) {
     document.getElementById('profile-modal-bg').classList.remove('open');
   }
 }
+// Hydrate the interactive Department list checkboxes on load
+document.addEventListener("DOMContentLoaded", () => {
+  const scrollWrap = document.getElementById("dept-scroll");
+  if (!scrollWrap) return;
+
+  // Clear loading placeholder and build checkboxes dynamically
+  scrollWrap.innerHTML = DEPTS.map(d => `
+    <div class="dept-option" id="opt-${d.id}" onclick="toggleDeptSelection('${d.id}')">
+      <input type="checkbox" id="chk-${d.id}" value="${d.id}" onclick="event.stopPropagation(); toggleDeptSelection('${d.id}')">
+      <span>${d.icon} ${d.name}</span>
+    </div>
+  `).join('');
+});
+
+// Manage the selected departments list
+function toggleDeptSelection(id) {
+  const checkbox = document.getElementById(`chk-${id}`);
+  const optionEl = document.getElementById(`opt-${id}`);
+  
+  if (!checkbox || !optionEl) return;
+
+  // Sync state toggling
+  if (event.type === 'click' && event.target.tagName !== 'INPUT') {
+    checkbox.checked = !checkbox.checked;
+  }
+
+  if (checkbox.checked) {
+    selectedDepts.add(id);
+    optionEl.classList.add('selected');
+  } else {
+    selectedDepts.delete(id);
+    optionEl.classList.remove('selected');
+  }
+
+  // Render text badges preview below the list
+  const preview = document.getElementById("sel-depts-preview");
+  if (preview) {
+    preview.innerHTML = Array.from(selectedDepts).map(dId => {
+      const match = DEPTS.find(x => x.id === dId);
+      return `<span class="badge-selected">${match ? match.icon + ' ' + match.id.toUpperCase() : dId}</span>`;
+    }).join('');
+  }
+}
