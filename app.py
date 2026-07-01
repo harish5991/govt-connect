@@ -82,7 +82,7 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS citizens (
                     mobile VARCHAR(15) PRIMARY KEY,
-                    name VARCHAR(100) NOT NULL,
+                    name VARCHAR(100) NOT NULL UNIQUE,
                     email VARCHAR(100) NOT NULL,
                     password VARCHAR(255) NOT NULL,
                     state VARCHAR(50) NOT NULL,
