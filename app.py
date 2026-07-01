@@ -97,8 +97,8 @@ def init_db():
             # 2. Officials Table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS officials (
-                    email VARCHAR(100) PRIMARY KEY,
-                    empid VARCHAR(50) NOT NULL,
+                    email VARCHAR(100) NOT NULL,
+                    empid VARCHAR(50) PRIMARY KEY,
                     name VARCHAR(100) NOT NULL,
                     desig VARCHAR(100) NOT NULL,
                     phone VARCHAR(20) NOT NULL,
