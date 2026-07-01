@@ -331,6 +331,7 @@ def citizen_login():
         conn.close()
         
 @app.route('/api/auth/official-signup', methods=['POST'])
+@app.route('/api/auth/official-signup', methods=['POST'])
 def official_signup():
     data = request.json
     conn = get_db_connection()
@@ -340,15 +341,32 @@ def official_signup():
             if cursor.fetchone():
                 return jsonify({"error": "Official identity already initialized inside tracking arrays."}), 400
             
+            # SAFE CHECK: Make sure depts is wrapped as a list if it comes as a string
+            incoming_depts = data.get('depts', [])
+            if isinstance(incoming_depts, str):
+                incoming_depts = [incoming_depts]
+
             sql = '''INSERT INTO officials (email, empid, name, desig, phone, password, state, district, depts)
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)'''
             hashed_pw = generate_password_hash(data['password'])
-            cursor.execute(sql, (data['email'], data['empid'], data['name'], data['desig'], data['phone'], hashed_pw, data['state'], data['district'], json.dumps(data['depts'])))
+            
+            cursor.execute(sql, (
+                data['email'], 
+                data['empid'], 
+                data['name'], 
+                data['desig'], 
+                data['phone'], 
+                hashed_pw, 
+                data.get('state', 'Telangana'), 
+                data.get('district', 'Default'), 
+                json.dumps(incoming_depts)
+            ))
             cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)', 
-                           (data['email'], "OFFICIAL_REGISTRATION", f"Official profile created for jurisdiction district: {data['district']}"))
+                           (data['email'], "OFFICIAL_REGISTRATION", f"Official profile created for jurisdiction district: {data.get('district', 'Default')}"))
         conn.commit()
-        return jsonify({"success": True, "user": {"name": data['name'], "desig": data['desig'], "email": data['email'], "district": data['district'], "depts": data['depts']}})
+        return jsonify({"success": True, "user": {"name": data['name'], "desig": data['desig'], "email": data['email'], "district": data.get('district', 'Default'), "depts": incoming_depts}})
     except Exception as e:
+        # Return the precise database error message to your browser console for debugging
         return jsonify({"error": str(e)}), 500
     finally:
         conn.close()
