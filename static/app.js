@@ -188,9 +188,13 @@ function loginAsCitizen(user) {
   document.getElementById('user-chip').style.display = 'flex';
   document.getElementById('name-inp').value = user.name;
   document.getElementById('btn-cctv').style.display = 'none';
+  showPage('page-citizen-home');
+}
+function startComplaintRegistration(langCode) {
+  document.getElementById('sys-lang-selector').value = langCode;  
+  executeLanguageTransformation(langCode);
   showPage('page-citizen-app');
 }
-
 // ══════════════════════════════════════════
 //  OFFICIAL CHANNELS & CORE ANALYTICS
 // ══════════════════════════════════════════
