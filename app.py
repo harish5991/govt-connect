@@ -323,11 +323,23 @@ def citizen_login():
             user = cursor.fetchone()
             if user and check_password_hash(user['password'],data['password']):
                 return jsonify({"success": True,"user": {"name": user['name'],"mobile": user['mobile'],"email": user['email']
+                return redirect(url_for('home'))
         }
     })
         return jsonify({"error": "Invalid login credentials."}), 401
     finally:
         conn.close()
+@app.route('/home')
+def home():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    return render_template('home.html')
+    
+@app.route('/register-complaint')
+def register_complaint():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    return render_template('govconnect.html')
 
 @app.route('/api/auth/official-signup', methods=['POST'])
 def official_signup():
