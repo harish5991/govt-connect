@@ -303,10 +303,26 @@ async function analyzeIssue() {
 }
 
 async function sendComplaint() {
+ 
+  if (!analysisRes) {
+    alert("AI tracking evaluation data is missing.");
+    return;
+  }
+
+ 
+  const officialEmail = analysisRes.email || "support@gov.in";
+  const complaintBody = document.getElementById('r-complaint-box').textContent;
+  const subject = `Official Civic Grievance: ${analysisRes.category || 'Complaint Submission'}`;
+
+ 
+  const mailtoUrl = `mailto:${officialEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(complaintBody)}`;
+  window.location.href = mailtoUrl;
+
+  
   const payload = {
     mobile: currentUser ? currentUser.mobile : "ANONYMOUS",
     title: analysisRes.category,
-    description: document.getElementById('r-complaint-box').textContent,
+    description: complaintBody,
     location: document.getElementById('loc-inp').value.trim(),
     latitude: globalLatitudeRef,
     longitude: globalLongitudeRef,
@@ -323,6 +339,7 @@ async function sendComplaint() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+  
   const data = await res.json();
   if(data.success) {
     currentTrackingRefId = data.ref_id;
