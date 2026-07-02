@@ -490,12 +490,13 @@ def analyze_issue():
     system_prompt = (
         "You are an AI assistant routing Indian civic complaints to the correct department. "
         f"Generate the 'complaint_letter' body strictly in this language: '{target_lang}'. "
-        "Analyze the content and respond ONLY with a clean, un-markdown wrapped JSON string mapping these keys exactly:\n"
+        "Analyze the content and respond ONLY with a valid, clean, un-markdown wrapped JSON string mapping these keys exactly. "
+        "CRITICAL: If the user input is very short or lacks context, use logical fallback assumptions to complete the fields instead of failing. "
+        "Do not include any backticks, markdown code blocks, prose, or introductory conversational filler text. Output raw JSON syntax:\n"
         '{"department":"Full Department Title","department_short":"Acronym","icon":"emoji","official_title":"Title",'
-        '"official_name":"Indian Name","email":"dept@gov.in","phone":"1800-xx-xxxx","priority":"High/Medium/Low",'
-        '"category":"Category","resolution_days":7,"tags":["tag1","tag2"],"route":["Intake","Field"],"complaint_letter":"Letter Body"}'
+        '"official_name":"Indian Name","email":"dept@gov.in","phone":"1800-xx-xxxx","priority":"Low",'
+        '"category":"General Civic Issue","resolution_days":7,"tags":["civic"],"route":["Intake","Field"],"complaint_letter":"Letter Body"}'
     )
-
     messages = [{"role": "system", "content": system_prompt}]
     user_message_content = []
     
