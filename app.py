@@ -514,7 +514,7 @@ def analyze_issue():
             messages=messages,
             max_tokens=1200
         )
-        raw_output = response.choices[0].message.content.strip()
+        raw_output = response.choices[0].message.content.strip()  
         cleaned_json = re.sub(r'^```json\s*|\s*```$', '', raw_output, flags=re.IGNORECASE).strip()
         return jsonify(json.loads(cleaned_json))
     except Exception as e:
