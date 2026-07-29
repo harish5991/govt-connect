@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
+
 import os
 import re
 import json
@@ -7,9 +8,10 @@ import random
 import hashlib
 import io
 from datetime import datetime, timedelta
+
 import pymysql
-from flask import Flask, render_template, request, jsonify, send_file,session
-from openai import OpenAI
+from flask import Flask, render_template, request, jsonify, send_file, session
+import anthropic
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
@@ -18,21 +20,16 @@ from fpdf import FPDF
 import requests
 
 app = Flask(__name__)
-
 UPLOAD_FOLDER = "uploads"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "govconnect_free_secure_session_token_19283")
 
 # ══════════════════════════════════════════
-#  EXTERNAL SERVICE CONFIGURATIONS
+# EXTERNAL SERVICE CONFIGURATIONS
 # ══════════════════════════════════════════
-OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY") or "dummy-key"
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_KEY,
-)
-FREE_MODEL = "openrouter/free"
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY") or "dummy-key"
+client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 # AWS S3 Cloud Storage Engine Setup
 S3_BUCKET = os.environ.get("AWS_S3_BUCKET_NAME")
@@ -43,8 +40,8 @@ s3_client = boto3.client(
 )
 
 # ══════════════════════════════════════════
-#  MYSQL CONFIGURATION ENGINE
-#  Supports Railway's MYSQL_URL or individual variables
+# MYSQL CONFIGURATION ENGINE
+# Supports Railway's MYSQL_URL or individual variables
 # ══════════════════════════════════════════
 import urllib.parse
 
@@ -82,7 +79,7 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS citizens (
                     mobile VARCHAR(15) PRIMARY KEY,
-                    name VARCHAR(100) NOT NULL ,
+                    name VARCHAR(100) NOT NULL,
                     email VARCHAR(100) NOT NULL,
                     password VARCHAR(255) NOT NULL,
                     state VARCHAR(50) NOT NULL,
@@ -93,7 +90,6 @@ def init_db():
                     otp_expiry TIMESTAMP NULL DEFAULT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             ''')
-            
             # 2. Officials Table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS officials (
@@ -108,40 +104,25 @@ def init_db():
                     depts TEXT NOT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             ''')
-            
             # 3. Complaints Table (Enhanced with GIS, Language, and Cloud Media Trackers)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS complaints (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    ref_id VARCHAR(20) UNIQUE NOT NULL,
-    citizen_mobile VARCHAR(15),
-
-    title VARCHAR(150) NOT NULL,
-    description TEXT NOT NULL,
-    location VARCHAR(150) NOT NULL,
-
-    department VARCHAR(100),
-
-    assigned_to VARCHAR(100),
-
-    priority VARCHAR(20),
-
-    status VARCHAR(30)
-        DEFAULT 'Pending',
-
-    attachment_path VARCHAR(255),
-
-    created_at TIMESTAMP
-        DEFAULT CURRENT_TIMESTAMP,
-
-    updated_at TIMESTAMP
-        DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
-
-    resolved_at TIMESTAMP NULL
-);
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ref_id VARCHAR(20) UNIQUE NOT NULL,
+                    citizen_mobile VARCHAR(15),
+                    title VARCHAR(150) NOT NULL,
+                    description TEXT NOT NULL,
+                    location VARCHAR(150) NOT NULL,
+                    department VARCHAR(100),
+                    assigned_to VARCHAR(100),
+                    priority VARCHAR(20),
+                    status VARCHAR(30) DEFAULT 'Pending',
+                    attachment_path VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP NULL
+                );
             ''')
-
             # 4. Audit Logs Table (Immutable Log Stream System)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -161,14 +142,13 @@ def init_db():
 init_db()
 
 # ══════════════════════════════════════════
-#  UTILITY INFRASTRUCTURE PIPELINES
+# UTILITY INFRASTRUCTURE PIPELINES
 # ══════════════════════════════════════════
 def send_real_otp(phone, otp):
     api_key = os.environ.get("FAST2SMS_API_KEY")
     if not api_key:
         print(f"[DEV MODE] OTP for {phone}: {otp}")
         return True
-
     url = "https://www.fast2sms.com/dev/bulkV2"
     try:
         response = requests.post(url,
@@ -198,7 +178,6 @@ def upload_to_storage_service(file_obj):
             return f"https://{S3_BUCKET}.s3.amazonaws.com/{filename}"
         except NoCredentialsError:
             pass
-    
     # Dynamic Local Storage Fallback Subsystem
     local_dir = os.path.join(app.root_path, 'static', 'uploads')
     os.makedirs(local_dir, exist_ok=True)
@@ -206,8 +185,17 @@ def upload_to_storage_service(file_obj):
     file_obj.save(local_path)
     return f"/static/uploads/{filename}"
 
+def build_image_block(image_data):
+    """Convert a data URL (data:image/png;base64,...) into a Claude-compatible image content block."""
+    media_type, b64data = image_data.split(';base64,')
+    media_type = media_type.replace('data:', '')
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": media_type, "data": b64data}
+    }
+
 # ══════════════════════════════════════════
-#  ROUTING ENGINE & CORE API HOOKS
+# ROUTING ENGINE & CORE API HOOKS
 # ══════════════════════════════════════════
 @app.route('/')
 def index():
@@ -219,7 +207,6 @@ def reverse_geocode():
     lon = request.args.get('lon')
     if not lat or not lon:
         return jsonify({"error": "lat and lon are required"}), 400
-
     try:
         res = requests.get(
             "https://nominatim.openstreetmap.org/reverse",
@@ -229,7 +216,6 @@ def reverse_geocode():
         )
         data = res.json()
         address = data.get("address", {})
-
         parts = [
             address.get("neighbourhood") or address.get("suburb") or address.get("locality"),
             address.get("road"),
@@ -238,7 +224,6 @@ def reverse_geocode():
             address.get("state")
         ]
         place_name = ", ".join([p for p in parts if p]) or data.get("display_name")
-
         return jsonify({"success": True, "place_name": place_name, "raw": data.get("display_name")})
     except Exception as e:
         return jsonify({"error": "Reverse geocoding failed", "details": str(e)}), 500
@@ -252,14 +237,12 @@ def citizen_signup():
             cursor.execute('SELECT 1 FROM citizens WHERE mobile = %s', (data['mobile'],))
             if cursor.fetchone():
                 return jsonify({"error": "Mobile number already registered."}), 400
-            
             sql = '''INSERT INTO citizens (mobile, name, email, password, state, dob, aadhaar, is_verified)
                      VALUES (%s, %s, %s, %s, %s, %s, %s, 0)'''
             hashed_pw = generate_password_hash(data['password'])
-            cursor.execute(sql,(data['mobile'],data['name'],data['email'],hashed_pw,data['state'],data['dob'],data['aadhaar']))
-            
-            cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)', 
-                           (data['mobile'], "CITIZEN_SIGNUP", "Account created successfully. Awaiting OTP challenge verification."))
+            cursor.execute(sql, (data['mobile'], data['name'], data['email'], hashed_pw, data['state'], data['dob'], data['aadhaar']))
+            cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)',
+                            (data['mobile'], "CITIZEN_SIGNUP", "Account created successfully. Awaiting OTP challenge verification."))
         conn.commit()
         return jsonify({"success": True, "user": {"name": data['name'], "mobile": data['mobile'], "email": data['email'], "is_verified": 0}})
     except Exception as e:
@@ -274,7 +257,6 @@ def trigger_otp():
     otp_code = str(random.randint(100000, 999999))
     otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
     expiry = datetime.now() + timedelta(minutes=10)
-    
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -293,7 +275,6 @@ def verify_otp():
     mobile = data.get('mobile')
     otp_input = data.get('otp')
     input_hash = hashlib.sha256(otp_input.encode()).hexdigest()
-    
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -301,10 +282,9 @@ def verify_otp():
             user = cursor.fetchone()
             if not user or user['otp_hash'] != input_hash or datetime.now() > user['otp_expiry']:
                 return jsonify({"error": "Invalid or expired authorization token."}), 401
-            
             cursor.execute('UPDATE citizens SET is_verified = 1, otp_hash = NULL, otp_expiry = NULL WHERE mobile = %s', (mobile,))
-            cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)', 
-                           (mobile, "AADHAAR_MFA_SUCCESS", "Aadhaar Identity Verification successful via OTP protocol."))
+            cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)',
+                            (mobile, "AADHAAR_MFA_SUCCESS", "Aadhaar Identity Verification successful via OTP protocol."))
         conn.commit()
         return jsonify({"success": True, "user": {"name": user['name'], "mobile": mobile, "email": user['email'], "is_verified": 1}})
     except Exception as e:
@@ -318,19 +298,15 @@ def citizen_login():
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            sql = ' SELECT * FROM citizens WHERE mobile=%s OR email=%s'
-            cursor.execute(sql,(data['username'], data['username']))
+            sql = 'SELECT * FROM citizens WHERE mobile=%s OR email=%s'
+            cursor.execute(sql, (data['username'], data['username']))
             user = cursor.fetchone()
-            if user and check_password_hash(user['password'],data['password']):
-                return jsonify({"success": True,"user": {"name": user['name'],"mobile": user['mobile'],"email": user['email']
-               
-        }
-    })
-        return jsonify({"error": "Invalid login credentials."}), 401
+            if user and check_password_hash(user['password'], data['password']):
+                return jsonify({"success": True, "user": {"name": user['name'], "mobile": user['mobile'], "email": user['email']}})
+            return jsonify({"error": "Invalid login credentials."}), 401
     finally:
         conn.close()
-        
-@app.route('/api/auth/official-signup', methods=['POST'])
+
 @app.route('/api/auth/official-signup', methods=['POST'])
 def official_signup():
     data = request.json
@@ -340,33 +316,23 @@ def official_signup():
             cursor.execute('SELECT 1 FROM officials WHERE email = %s', (data['email'],))
             if cursor.fetchone():
                 return jsonify({"error": "Official identity already initialized inside tracking arrays."}), 400
-            
             # SAFE CHECK: Make sure depts is wrapped as a list if it comes as a string
             incoming_depts = data.get('depts', [])
             if isinstance(incoming_depts, str):
                 incoming_depts = [incoming_depts]
-
             sql = '''INSERT INTO officials (email, empid, name, desig, phone, password, state, district, depts)
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)'''
             hashed_pw = generate_password_hash(data['password'])
-            
             cursor.execute(sql, (
-                data['email'], 
-                data['empid'], 
-                data['name'], 
-                data['desig'], 
-                data['phone'], 
-                hashed_pw, 
-                data.get('state', 'Telangana'), 
-                data.get('district', 'Default'), 
+                data['email'], data['empid'], data['name'], data['desig'], data['phone'],
+                hashed_pw, data.get('state', 'Telangana'), data.get('district', 'Default'),
                 json.dumps(incoming_depts)
             ))
-            cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)', 
-                           (data['email'], "OFFICIAL_REGISTRATION", f"Official profile created for jurisdiction district: {data.get('district', 'Default')}"))
+            cursor.execute('INSERT INTO audit_logs (actor, action, details) VALUES (%s, %s, %s)',
+                            (data['email'], "OFFICIAL_REGISTRATION", f"Official profile created for jurisdiction district: {data.get('district', 'Default')}"))
         conn.commit()
         return jsonify({"success": True, "user": {"name": data['name'], "desig": data['desig'], "email": data['email'], "district": data.get('district', 'Default'), "depts": incoming_depts}})
     except Exception as e:
-        # Return the precise database error message to your browser console for debugging
         return jsonify({"error": str(e)}), 500
     finally:
         conn.close()
@@ -382,47 +348,45 @@ def official_login():
             user = cursor.fetchone()
             if user and check_password_hash(user['password'], data['password']):
                 return jsonify({
-                    "success": True, 
+                    "success": True,
                     "user": {
-                        "name": user['name'], "desig": user['desig'], "email": user['email'], 
+                        "name": user['name'], "desig": user['desig'], "email": user['email'],
                         "district": user['district'], "depts": json.loads(user['depts'])
                     }
                 })
-        return jsonify({"error": "Invalid official credentials."}), 401
+            return jsonify({"error": "Invalid official credentials."}), 401
     finally:
         conn.close()
 
 # ══════════════════════════════════════════
-#  COMPLAINTS pipeline EXECUTIONS
+# COMPLAINTS PIPELINE EXECUTIONS
 # ══════════════════════════════════════════
 @app.route('/api/complaints/submit', methods=['POST'])
 def submit_complaint():
     # Supports multipart/form-data payloads to process uploaded document frames dynamically
     payload = request.form if request.form else request.json
     ref_id = f"GC-{os.urandom(3).hex().upper()}"
-    
     attachment_url = None
     if 'file' in request.files:
         attachment_url = upload_to_storage_service(request.files['file'])
     elif payload.get('image'):
-        attachment_url = payload.get('image') # handles base64 passdowns from UI configurations
+        attachment_url = payload.get('image')  # handles base64 passdowns from UI configurations
 
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            sql = '''INSERT INTO complaints (ref_id, citizen_mobile, title, description, location, 
-                                             latitude, longitude, department, official_title, official_name, priority, lang, attachment_url)
+            sql = '''INSERT INTO complaints (ref_id, citizen_mobile, title, description, location,
+                     latitude, longitude, department, official_title, official_name, priority, lang, attachment_url)
                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
             cursor.execute(sql, (
                 ref_id, payload.get('mobile'), payload['title'], payload['description'], payload['location'],
                 payload.get('latitude') if payload.get('latitude') else None,
                 payload.get('longitude') if payload.get('longitude') else None,
-                payload['department'], payload.get('official_title'), payload.get('official_name'), 
+                payload['department'], payload.get('official_title'), payload.get('official_name'),
                 payload['priority'], payload.get('lang', 'en'), attachment_url
             ))
-            
-            cursor.execute('INSERT INTO audit_logs (actor, action, target_ref, details) VALUES (%s, %s, %s, %s)', 
-                           (payload.get('mobile', 'ANONYMOUS'), "COMPLAINT_SUBMISSION", ref_id, f"Grievance recorded. Channel Language: {payload.get('lang', 'en')}"))
+            cursor.execute('INSERT INTO audit_logs (actor, action, target_ref, details) VALUES (%s, %s, %s, %s)',
+                            (payload.get('mobile', 'ANONYMOUS'), "COMPLAINT_SUBMISSION", ref_id, f"Grievance recorded. Channel Language: {payload.get('lang', 'en')}"))
         conn.commit()
         send_real_otp(payload.get('mobile'), f"Grievance submitted. Reference Token ID: {ref_id}. Check status via tracking hub.")
         return jsonify({"success": True, "ref_id": ref_id})
@@ -438,7 +402,7 @@ def get_complaints():
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM complaints ORDER BY created_at DESC")
             complaints = cursor.fetchall()
-        return jsonify(complaints)
+            return jsonify(complaints)
     finally:
         conn.close()
 
@@ -451,7 +415,7 @@ def check_complaint_status(ref_id):
             record = cursor.fetchone()
             if not record:
                 return jsonify({"error": "Target sequence reference identifier not found"}), 404
-        return jsonify({"success": True, "complaint": record})
+            return jsonify({"success": True, "complaint": record})
     finally:
         conn.close()
 
@@ -464,9 +428,8 @@ def update_complaint_status():
             cursor.execute('UPDATE complaints SET status = %s WHERE ref_id = %s', (data['status'], data['ref_id']))
             cursor.execute('SELECT citizen_mobile FROM complaints WHERE ref_id = %s', (data['ref_id'],))
             row = cursor.fetchone()
-            
-            cursor.execute('INSERT INTO audit_logs (actor, action, target_ref, details) VALUES (%s, %s, %s, %s)', 
-                           (data.get('official_email', 'OFFICIAL'), "STATUS_UPDATE", data['ref_id'], f"Status modified matrix set to: {data['status']}"))
+            cursor.execute('INSERT INTO audit_logs (actor, action, target_ref, details) VALUES (%s, %s, %s, %s)',
+                            (data.get('official_email', 'OFFICIAL'), "STATUS_UPDATE", data['ref_id'], f"Status modified matrix set to: {data['status']}"))
         conn.commit()
         if row and row['citizen_mobile']:
             send_real_otp(row['citizen_mobile'], f"Status Alert: Your grievance {data['ref_id']} has been moved to '{data['status']}'.")
@@ -478,9 +441,9 @@ def update_complaint_status():
 
 @app.route('/api/analyze-issue', methods=['POST'])
 def analyze_issue():
-    if not OPENROUTER_KEY:
+    if not ANTHROPIC_KEY:
         return jsonify({"error": "Missing system configuration routing keys."}), 500
-    
+
     data = request.json
     text = data.get('text', '')
     location = data.get('location', '')
@@ -497,24 +460,22 @@ def analyze_issue():
         '"official_name":"Indian Name","email":"dept@gov.in","phone":"1800-xx-xxxx","priority":"Low",'
         '"category":"General Civic Issue","resolution_days":7,"tags":["civic"],"route":["Intake","Field"],"complaint_letter":"Letter Body"}'
     )
-    messages = [{"role": "system", "content": system_prompt}]
+
     user_message_content = []
-    
     if image_data and ',' in image_data:
         user_message_content.append({"type": "text", "text": f"Analyze context. Problem: {text}. Location: {location}."})
-        user_message_content.append({"type": "image_url", "image_url": {"url": image_data}})
+        user_message_content.append(build_image_block(image_data))
     else:
         user_message_content.append({"type": "text", "text": f"Issue Description: {text}\nLocation Context: {location}"})
-        
-    messages.append({"role": "user", "content": user_message_content})
 
     try:
-        response = client.chat.completions.create(
-            model=FREE_MODEL,
-            messages=messages,
-            max_tokens=1200
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=1200,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message_content}]
         )
-        raw_output = response.choices[0].message.content.strip()  
+        raw_output = response.content[0].text.strip()
         cleaned_json = re.sub(r'^```json\s*|\s*```$', '', raw_output, flags=re.IGNORECASE).strip()
         return jsonify(json.loads(cleaned_json))
     except Exception as e:
@@ -535,31 +496,28 @@ def analyze_cctv():
         '"description":"Details","departments":["Police"],"dispatch_message":"Dispatch instructions","confidence":95}]}'
     )
 
-    messages = [{"role": "system", "content": system_prompt}]
     user_message_content = []
-    
     if image_data and ',' in image_data:
         user_message_content.append({"type": "text", "text": f"Process snapshot stream location array: {cam_id} - {cam_name}."})
-        user_message_content.append({"type": "image_url", "image_url": {"url": image_data}})
+        user_message_content.append(build_image_block(image_data))
     else:
         user_message_content.append({"type": "text", "text": f"Generate baseline tracking matrix simulation for {cam_id} ({cam_name})."})
-        
-    messages.append({"role": "user", "content": user_message_content})
 
     try:
-        response = client.chat.completions.create(
-            model=FREE_MODEL,
-            messages=messages,
-            max_tokens=1000
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=1000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message_content}]
         )
-        raw_output = response.choices[0].message.content.strip()
+        raw_output = response.content[0].text.strip()
         cleaned_json = re.sub(r'^```json\s*|\s*```$', '', raw_output, flags=re.IGNORECASE).strip()
         return jsonify(json.loads(cleaned_json))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ══════════════════════════════════════════
-#  ANALYTICS & DOCUMENT COMPILATION MODULES
+# ANALYTICS & DOCUMENT COMPILATION MODULES
 # ══════════════════════════════════════════
 @app.route('/api/analytics/metrics', methods=['GET'])
 def get_analytics_metrics():
@@ -573,7 +531,7 @@ def get_analytics_metrics():
                 FROM complaints GROUP BY department
             ''')
             metrics = cursor.fetchall()
-        return jsonify({"success": True, "metrics": metrics})
+            return jsonify({"success": True, "metrics": metrics})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -586,36 +544,32 @@ def export_complaint_pdf(ref_id):
         with conn.cursor() as cursor:
             cursor.execute('SELECT * FROM complaints WHERE ref_id = %s', (ref_id,))
             c = cursor.fetchone()
-        if not c:
-            return "Reference identifier target matrix evaluation record missing.", 404
-            
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Helvetica", size=12)
-        
-        pdf.set_font("Helvetica", style="B", size=16)
-        pdf.cell(200, 10, txt="GOVCONNECT OFFICIAL GRIEVANCE DOSSIER", ln=True, align="C")
-        pdf.ln(10)
-        
-        pdf.set_font("Helvetica", size=12)
-        pdf.cell(200, 10, txt=f"Grievance Reference Token ID: {c['ref_id']}", ln=True)
-        pdf.cell(200, 10, txt=f"Assigned Department Vector: {c['department']}", ln=True)
-        pdf.cell(200, 10, txt=f"Target Core Priority Level: {c['priority']}", ln=True)
-        pdf.cell(200, 10, txt=f"Operational Processing Status Flag: {c['status']}", ln=True)
-        pdf.cell(200, 10, txt=f"Registered Interface Core Coordinates: Lat {c['latitude']}, Lon {c['longitude']}", ln=True)
-        pdf.ln(5)
-        
-        pdf.set_font("Helvetica", style="B", size=12)
-        pdf.cell(200, 10, txt="Auto-Generated Document Body Matrix Text:", ln=True)
-        pdf.set_font("Helvetica", size=10)
-        pdf.multi_cell(0, 8, txt=c['description'])
-        
-        output = io.BytesIO()
-        pdf_string = pdf.output(dest='S').encode('latin-1')
-        output.write(pdf_string)
-        output.seek(0)
-        
-        return send_file(output, download_name=f"GovConnect_{ref_id}.pdf", mimetype="application/pdf")
+            if not c:
+                return "Reference identifier target matrix evaluation record missing.", 404
+
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Helvetica", size=12)
+            pdf.set_font("Helvetica", style="B", size=16)
+            pdf.cell(200, 10, txt="GOVCONNECT OFFICIAL GRIEVANCE DOSSIER", ln=True, align="C")
+            pdf.ln(10)
+            pdf.set_font("Helvetica", size=12)
+            pdf.cell(200, 10, txt=f"Grievance Reference Token ID: {c['ref_id']}", ln=True)
+            pdf.cell(200, 10, txt=f"Assigned Department Vector: {c['department']}", ln=True)
+            pdf.cell(200, 10, txt=f"Target Core Priority Level: {c['priority']}", ln=True)
+            pdf.cell(200, 10, txt=f"Operational Processing Status Flag: {c['status']}", ln=True)
+            pdf.cell(200, 10, txt=f"Registered Interface Core Coordinates: Lat {c['latitude']}, Lon {c['longitude']}", ln=True)
+            pdf.ln(5)
+            pdf.set_font("Helvetica", style="B", size=12)
+            pdf.cell(200, 10, txt="Auto-Generated Document Body Matrix Text:", ln=True)
+            pdf.set_font("Helvetica", size=10)
+            pdf.multi_cell(0, 8, txt=c['description'])
+
+            output = io.BytesIO()
+            pdf_string = pdf.output(dest='S').encode('latin-1')
+            output.write(pdf_string)
+            output.seek(0)
+            return send_file(output, download_name=f"GovConnect_{ref_id}.pdf", mimetype="application/pdf")
     except Exception as e:
         return str(e), 500
     finally:
