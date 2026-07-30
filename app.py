@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 import pymysql
 from flask import Flask, render_template, request, jsonify, send_file, session
-import anthropic
+from openai import OpenAI
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
@@ -26,10 +26,17 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "govconnect_free_secure_sess
 
 # ══════════════════════════════════════════
 # EXTERNAL SERVICE CONFIGURATIONS
+# NOTE: PythonAnywhere free accounts can only reach allowlisted external
+# sites over HTTP/HTTPS. OpenRouter, Nominatim, and Fast2SMS are NOT on
+# that allowlist by default, so analyze-issue, analyze-cctv, reverse-geocode,
+# and SMS sending may fail with a connection error on the free tier.
 # ══════════════════════════════════════════
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY") or "dummy-key"
-client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY") or "dummy-key"
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_KEY,
+)
+FREE_MODEL = "openrouter/free"
 
 # AWS S3 Cloud Storage Engine Setup
 S3_BUCKET = os.environ.get("AWS_S3_BUCKET_NAME")
@@ -40,33 +47,19 @@ s3_client = boto3.client(
 )
 
 # ══════════════════════════════════════════
-# MYSQL CONFIGURATION ENGINE
-# Supports Railway's MYSQL_URL or individual variables
+# MYSQL CONFIGURATION ENGINE — PythonAnywhere free MySQL
+# On PythonAnywhere: Dashboard -> Databases tab -> set a DB password there
+# (separate from your account password), then the host/db name they give
+# you follow the pattern below. Set these as env vars, or hardcode as a
+# fallback since PythonAnywhere free tier doesn't support .env cleanly
+# unless you load it explicitly in the WSGI file (see notes below).
 # ══════════════════════════════════════════
-import urllib.parse
-
 def get_db_connection():
-    # Railway provides MYSQL_URL — use it directly if available
-    mysql_url = os.environ.get("MYSQL_URL") or os.environ.get("MYSQL_PUBLIC_URL")
-    if mysql_url:
-        # Parse the URL: mysql://user:password@host:port/dbname
-        parsed = urllib.parse.urlparse(mysql_url)
-        return pymysql.connect(
-            host=parsed.hostname,
-            port=parsed.port or 3306,
-            user=parsed.username,
-            password=parsed.password,
-            database=parsed.path.lstrip('/'),
-            cursorclass=pymysql.cursors.DictCursor,
-            connect_timeout=10
-        )
-    # Fallback to individual environment variables
     return pymysql.connect(
-        host=os.environ.get("MYSQLHOST") or os.environ.get("MYSQL_HOST", "localhost"),
-        port=int(os.environ.get("MYSQLPORT") or os.environ.get("MYSQL_PORT") or 3306),
-        user=os.environ.get("MYSQLUSER") or os.environ.get("MYSQL_USER", "root"),
-        password=os.environ.get("MYSQLPASSWORD") or os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQLDATABASE") or os.environ.get("MYSQL_DB", "railway"),
+        host=os.environ.get("PA_MYSQL_HOST", "yourusername.mysql.pythonanywhere-services.com"),
+        user=os.environ.get("PA_MYSQL_USER", "yourusername"),
+        password=os.environ.get("PA_MYSQL_PASSWORD", ""),
+        database=os.environ.get("PA_MYSQL_DB", "yourusername$govconnect"),
         cursorclass=pymysql.cursors.DictCursor,
         connect_timeout=10
     )
@@ -75,7 +68,6 @@ def init_db():
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            # 1. Citizens Table (Enhanced with Verification Matrix Parameters)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS citizens (
                     mobile VARCHAR(15) PRIMARY KEY,
@@ -90,7 +82,6 @@ def init_db():
                     otp_expiry TIMESTAMP NULL DEFAULT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             ''')
-            # 2. Officials Table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS officials (
                     email VARCHAR(100) NOT NULL,
@@ -104,7 +95,6 @@ def init_db():
                     depts TEXT NOT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             ''')
-            # 3. Complaints Table (Enhanced with GIS, Language, and Cloud Media Trackers)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS complaints (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -113,17 +103,35 @@ def init_db():
                     title VARCHAR(150) NOT NULL,
                     description TEXT NOT NULL,
                     location VARCHAR(150) NOT NULL,
+                    latitude DOUBLE DEFAULT NULL,
+                    longitude DOUBLE DEFAULT NULL,
                     department VARCHAR(100),
+                    official_title VARCHAR(100),
+                    official_name VARCHAR(100),
                     assigned_to VARCHAR(100),
                     priority VARCHAR(20),
                     status VARCHAR(30) DEFAULT 'Pending',
+                    lang VARCHAR(10) DEFAULT 'en',
                     attachment_path VARCHAR(255),
+                    attachment_url VARCHAR(500),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     resolved_at TIMESTAMP NULL
                 );
             ''')
-            # 4. Audit Logs Table (Immutable Log Stream System)
+            for col_def in [
+                "ADD COLUMN latitude DOUBLE DEFAULT NULL",
+                "ADD COLUMN longitude DOUBLE DEFAULT NULL",
+                "ADD COLUMN official_title VARCHAR(100)",
+                "ADD COLUMN official_name VARCHAR(100)",
+                "ADD COLUMN lang VARCHAR(10) DEFAULT 'en'",
+                "ADD COLUMN attachment_url VARCHAR(500)",
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE complaints {col_def}")
+                except Exception:
+                    pass  # column already exists
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS audit_logs (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -178,21 +186,20 @@ def upload_to_storage_service(file_obj):
             return f"https://{S3_BUCKET}.s3.amazonaws.com/{filename}"
         except NoCredentialsError:
             pass
-    # Dynamic Local Storage Fallback Subsystem
     local_dir = os.path.join(app.root_path, 'static', 'uploads')
     os.makedirs(local_dir, exist_ok=True)
     local_path = os.path.join(local_dir, filename)
     file_obj.save(local_path)
     return f"/static/uploads/{filename}"
 
-def build_image_block(image_data):
-    """Convert a data URL (data:image/png;base64,...) into a Claude-compatible image content block."""
-    media_type, b64data = image_data.split(';base64,')
-    media_type = media_type.replace('data:', '')
-    return {
-        "type": "image",
-        "source": {"type": "base64", "media_type": media_type, "data": b64data}
-    }
+def extract_json(raw_output):
+    """Robustly pull a JSON object out of a model response, even if it added
+    stray prose or markdown fences around it."""
+    cleaned = re.sub(r'^```json\s*|\s*```$', '', raw_output.strip(), flags=re.IGNORECASE).strip()
+    match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+    if match:
+        cleaned = match.group(0)
+    return json.loads(cleaned)
 
 # ══════════════════════════════════════════
 # ROUTING ENGINE & CORE API HOOKS
@@ -316,7 +323,6 @@ def official_signup():
             cursor.execute('SELECT 1 FROM officials WHERE email = %s', (data['email'],))
             if cursor.fetchone():
                 return jsonify({"error": "Official identity already initialized inside tracking arrays."}), 400
-            # SAFE CHECK: Make sure depts is wrapped as a list if it comes as a string
             incoming_depts = data.get('depts', [])
             if isinstance(incoming_depts, str):
                 incoming_depts = [incoming_depts]
@@ -363,14 +369,13 @@ def official_login():
 # ══════════════════════════════════════════
 @app.route('/api/complaints/submit', methods=['POST'])
 def submit_complaint():
-    # Supports multipart/form-data payloads to process uploaded document frames dynamically
     payload = request.form if request.form else request.json
     ref_id = f"GC-{os.urandom(3).hex().upper()}"
     attachment_url = None
     if 'file' in request.files:
         attachment_url = upload_to_storage_service(request.files['file'])
     elif payload.get('image'):
-        attachment_url = payload.get('image')  # handles base64 passdowns from UI configurations
+        attachment_url = payload.get('image')
 
     conn = get_db_connection()
     try:
@@ -441,7 +446,7 @@ def update_complaint_status():
 
 @app.route('/api/analyze-issue', methods=['POST'])
 def analyze_issue():
-    if not ANTHROPIC_KEY:
+    if not OPENROUTER_KEY:
         return jsonify({"error": "Missing system configuration routing keys."}), 500
 
     data = request.json
@@ -461,24 +466,27 @@ def analyze_issue():
         '"category":"General Civic Issue","resolution_days":7,"tags":["civic"],"route":["Intake","Field"],"complaint_letter":"Letter Body"}'
     )
 
+    messages = [{"role": "system", "content": system_prompt}]
     user_message_content = []
     if image_data and ',' in image_data:
         user_message_content.append({"type": "text", "text": f"Analyze context. Problem: {text}. Location: {location}."})
-        user_message_content.append(build_image_block(image_data))
+        user_message_content.append({"type": "image_url", "image_url": {"url": image_data}})
     else:
         user_message_content.append({"type": "text", "text": f"Issue Description: {text}\nLocation Context: {location}"})
+    messages.append({"role": "user", "content": user_message_content})
 
     try:
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
+        response = client.chat.completions.create(
+            model=FREE_MODEL,
+            messages=messages,
             max_tokens=1200,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message_content}]
+            timeout=25
         )
-        raw_output = response.content[0].text.strip()
-        cleaned_json = re.sub(r'^```json\s*|\s*```$', '', raw_output, flags=re.IGNORECASE).strip()
-        return jsonify(json.loads(cleaned_json))
+        raw_output = response.choices[0].message.content.strip()
+        print(f"[AI RAW OUTPUT - analyze_issue] {raw_output[:500]}")
+        return jsonify(extract_json(raw_output))
     except Exception as e:
+        print(f"[AI ERROR - analyze_issue] {str(e)}")
         return jsonify({"error": f"AI Parsing Registry Exception: {str(e)}"}), 500
 
 @app.route('/api/analyze-cctv', methods=['POST'])
@@ -496,24 +504,27 @@ def analyze_cctv():
         '"description":"Details","departments":["Police"],"dispatch_message":"Dispatch instructions","confidence":95}]}'
     )
 
+    messages = [{"role": "system", "content": system_prompt}]
     user_message_content = []
     if image_data and ',' in image_data:
         user_message_content.append({"type": "text", "text": f"Process snapshot stream location array: {cam_id} - {cam_name}."})
-        user_message_content.append(build_image_block(image_data))
+        user_message_content.append({"type": "image_url", "image_url": {"url": image_data}})
     else:
         user_message_content.append({"type": "text", "text": f"Generate baseline tracking matrix simulation for {cam_id} ({cam_name})."})
+    messages.append({"role": "user", "content": user_message_content})
 
     try:
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
+        response = client.chat.completions.create(
+            model=FREE_MODEL,
+            messages=messages,
             max_tokens=1000,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message_content}]
+            timeout=25
         )
-        raw_output = response.content[0].text.strip()
-        cleaned_json = re.sub(r'^```json\s*|\s*```$', '', raw_output, flags=re.IGNORECASE).strip()
-        return jsonify(json.loads(cleaned_json))
+        raw_output = response.choices[0].message.content.strip()
+        print(f"[AI RAW OUTPUT - analyze_cctv] {raw_output[:500]}")
+        return jsonify(extract_json(raw_output))
     except Exception as e:
+        print(f"[AI ERROR - analyze_cctv] {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # ══════════════════════════════════════════
@@ -575,6 +586,9 @@ def export_complaint_pdf(ref_id):
     finally:
         conn.close()
 
+# NOTE: On PythonAnywhere, this __main__ block never runs — the WSGI file
+# imports `app` directly and their web server handles the port/host. Kept
+# here only for local testing.
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(debug=True, host='0.0.0.0', port=port)
