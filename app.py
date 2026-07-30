@@ -55,15 +55,19 @@ s3_client = boto3.client(
 # unless you load it explicitly in the WSGI file (see notes below).
 # ══════════════════════════════════════════
 def get_db_connection():
+    host = os.environ.get("PA_MYSQL_HOST", "127.0.0.1")
+    user = os.environ.get("PA_MYSQL_USER", "root")
+    password = os.environ.get("PA_MYSQL_PASSWORD", "hari_14@mac")
+    db = os.environ.get("PA_MYSQL_DB", "govconnect")
+    print(f"[DB DEBUG] host={host} user={user} db={db}")
     return pymysql.connect(
-        host=os.environ.get("PA_MYSQL_HOST", "yourusername.mysql.pythonanywhere-services.com"),
-        user=os.environ.get("PA_MYSQL_USER", "yourusername"),
-        password=os.environ.get("PA_MYSQL_PASSWORD", ""),
-        database=os.environ.get("PA_MYSQL_DB", "yourusername$govconnect"),
+        host=host,
+        user=user,
+        password=password,
+        database=db,
         cursorclass=pymysql.cursors.DictCursor,
         connect_timeout=10
     )
-
 def init_db():
     conn = get_db_connection()
     try:
