@@ -67,14 +67,34 @@ function executeLanguageTransformation(selectedLangCode) {
   document.getElementById('app-hero-title').innerHTML = bundle.appHero;
 }
 
-function extractBrowserSpatialCoordinates() {
+function extractBrowserSpatialCoordinates(opts = {}) {
+  const silent = !!opts.silent;
   const out = document.getElementById('gis-coordinates-output');
+  const fallback = document.getElementById('manual-coords-fallback');
+
   if (!navigator.geolocation) {
-    out.textContent = "Geolocation is not supported by this browser.";
+    if (!silent) out.textContent = "Geolocation is not supported by this browser.";
+    fallback.style.display = 'block';
     return;
   }
 
-  out.textContent = "📍 Detecting your location...";
+  // The Geolocation API only works on HTTPS or on localhost/127.0.0.1.
+  // On a plain http:// LAN address (e.g. http://192.168.x.x:8080) the
+  // browser blocks the call before any permission prompt even appears,
+  // so this check catches that case with a much clearer message than
+  // the generic "permission denied" callback would give.
+  if (!window.isSecureContext) {
+    if (!silent) {
+      out.textContent = "⚠️ Location requires HTTPS (or localhost). This page is loaded over an insecure connection, so the browser is blocking location access — this isn't a permissions issue.";
+    }
+    // Even silently, still surface the manual entry box — the user will
+    // need it, they just don't need a scary warning shoved at them
+    // before they've done anything on the page.
+    fallback.style.display = 'block';
+    return;
+  }
+
+  if (!silent) out.textContent = "📍 Detecting your location...";
 
   navigator.geolocation.getCurrentPosition(async pos => {
     globalLatitudeRef = pos.coords.latitude;
@@ -98,9 +118,57 @@ function extractBrowserSpatialCoordinates() {
       // Fallback directly to raw coordinates if network request fails entirely
       out.textContent = `📍 GIS Anchored: Lat ${globalLatitudeRef.toFixed(5)}, Lon ${globalLongitudeRef.toFixed(5)}`;
     }
+    fallback.style.display = 'none';
   }, err => {
-    out.textContent = "Location access denied. Please check your browser permissions.";
+    // err.code: 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+    let msg;
+    switch (err.code) {
+      case err.PERMISSION_DENIED:
+        msg = "Location permission denied. Check your browser's site settings (padlock icon in the address bar) and allow location for this site, then try again.";
+        break;
+      case err.POSITION_UNAVAILABLE:
+        msg = "Your device's location is currently unavailable. Try again, or enter coordinates manually below.";
+        break;
+      case err.TIMEOUT:
+        msg = "Location request timed out. Try again, or enter coordinates manually below.";
+        break;
+      default:
+        msg = "Could not get your location. Enter coordinates manually below.";
+    }
+    if (!silent) out.textContent = msg;
+    fallback.style.display = 'block';
   });
+}
+
+function applyManualLocation() {
+  const out = document.getElementById('gis-coordinates-output');
+  const locText = document.getElementById('manual-location-inp').value.trim();
+
+  if (!locText) {
+    out.textContent = "⚠️ Enter a location, e.g. a neighbourhood, landmark, or address.";
+    return;
+  }
+
+  out.textContent = "📍 Looking up location...";
+
+  fetch(`/api/geocode?q=${encodeURIComponent(locText)}`)
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        globalLatitudeRef = data.latitude;
+        globalLongitudeRef = data.longitude;
+        out.textContent = `GIS Anchored Successfully (manual): ${data.display_name || locText}`;
+        const locInput = document.getElementById('loc-inp');
+        if (locInput) {
+          locInput.value = locText;
+        }
+      } else {
+        out.textContent = `⚠️ ${data.error || "Location not found. Try a more specific address."}`;
+      }
+    })
+    .catch(() => {
+      out.textContent = "⚠️ Could not look up that location right now. Try again.";
+    });
 }
 
 // ══════════════════════════════════════════

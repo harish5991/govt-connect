@@ -22,7 +22,13 @@ import requests
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "govconnect_free_secure_session_token_19283")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+if not app.secret_key:
+    raise RuntimeError(
+        "FLASK_SECRET_KEY environment variable is not set. "
+        "Generate one (e.g. `python -c \"import secrets; print(secrets.token_hex(32))\"`) "
+        "and set it as an env var — do not hardcode it in source."
+    )
 
 # ══════════════════════════════════════════
 # EXTERNAL SERVICE CONFIGURATIONS
@@ -57,8 +63,14 @@ s3_client = boto3.client(
 def get_db_connection():
     host = os.environ.get("PA_MYSQL_HOST", "127.0.0.1")
     user = os.environ.get("PA_MYSQL_USER", "root")
-    password = os.environ.get("PA_MYSQL_PASSWORD", "hari_14@mac")
+    password = os.environ.get("PA_MYSQL_PASSWORD")
     db = os.environ.get("PA_MYSQL_DB", "govconnect")
+    if password is None:
+        raise RuntimeError(
+            "PA_MYSQL_PASSWORD environment variable is not set. "
+            "Set it in your .env (local) or PythonAnywhere env config — "
+            "never hardcode a real DB password as a fallback in source."
+        )
     print(f"[DB DEBUG] host={host} user={user} db={db}")
     return pymysql.connect(
         host=host,
@@ -212,6 +224,38 @@ def extract_json(raw_output):
 def index():
     return render_template('govconnect.html')
 
+@app.route('/api/geocode', methods=['GET'])
+def geocode():
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({"error": "q (location text) is required"}), 400
+    try:
+        res = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "format": "json",
+                "q": query,
+                "limit": 1,
+                "addressdetails": 1,
+                "countrycodes": "in"
+            },
+            headers={"User-Agent": "GovConnect-CivicApp/1.0"},
+            timeout=5
+        )
+        results = res.json()
+        if not results:
+            return jsonify({"error": "Location not found. Try a more specific address."}), 404
+        match = results[0]
+        return jsonify({
+            "success": True,
+            "latitude": float(match["lat"]),
+            "longitude": float(match["lon"]),
+            "display_name": match.get("display_name")
+        })
+    except Exception as e:
+        print(f"[GEOCODE ERROR] {e}")
+        return jsonify({"error": "Geocoding failed"}), 500
+
 @app.route('/api/reverse-geocode', methods=['GET'])
 def reverse_geocode():
     lat = request.args.get('lat')
@@ -237,7 +281,8 @@ def reverse_geocode():
         place_name = ", ".join([p for p in parts if p]) or data.get("display_name")
         return jsonify({"success": True, "place_name": place_name, "raw": data.get("display_name")})
     except Exception as e:
-        return jsonify({"error": "Reverse geocoding failed", "details": str(e)}), 500
+        print(f"[REVERSE-GEOCODE ERROR] {e}")
+        return jsonify({"error": "Reverse geocoding failed"}), 500
 
 @app.route('/api/auth/citizen-signup', methods=['POST'])
 def citizen_signup():
@@ -257,7 +302,8 @@ def citizen_signup():
         conn.commit()
         return jsonify({"success": True, "user": {"name": data['name'], "mobile": data['mobile'], "email": data['email'], "is_verified": 0}})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[CITIZEN_SIGNUP ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -276,7 +322,8 @@ def trigger_otp():
         send_real_otp(mobile, f"GovConnect Aadhaar Security Verification PIN: {otp_code}. Valid for 10 minutes.")
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[TRIGGER_OTP ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -299,7 +346,8 @@ def verify_otp():
         conn.commit()
         return jsonify({"success": True, "user": {"name": user['name'], "mobile": mobile, "email": user['email'], "is_verified": 1}})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[VERIFY_OTP ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -343,7 +391,8 @@ def official_signup():
         conn.commit()
         return jsonify({"success": True, "user": {"name": data['name'], "desig": data['desig'], "email": data['email'], "district": data.get('district', 'Default'), "depts": incoming_depts}})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[OFFICIAL_SIGNUP ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -400,7 +449,8 @@ def submit_complaint():
         send_real_otp(payload.get('mobile'), f"Grievance submitted. Reference Token ID: {ref_id}. Check status via tracking hub.")
         return jsonify({"success": True, "ref_id": ref_id})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[SUBMIT_COMPLAINT ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -444,7 +494,8 @@ def update_complaint_status():
             send_real_otp(row['citizen_mobile'], f"Status Alert: Your grievance {data['ref_id']} has been moved to '{data['status']}'.")
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[UPDATE_COMPLAINT_STATUS ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -491,7 +542,7 @@ def analyze_issue():
         return jsonify(extract_json(raw_output))
     except Exception as e:
         print(f"[AI ERROR - analyze_issue] {str(e)}")
-        return jsonify({"error": f"AI Parsing Registry Exception: {str(e)}"}), 500
+        return jsonify({"error": "AI analysis failed. Please try again."}), 500
 
 @app.route('/api/analyze-cctv', methods=['POST'])
 def analyze_cctv():
@@ -529,7 +580,7 @@ def analyze_cctv():
         return jsonify(extract_json(raw_output))
     except Exception as e:
         print(f"[AI ERROR - analyze_cctv] {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 # ══════════════════════════════════════════
 # ANALYTICS & DOCUMENT COMPILATION MODULES
@@ -548,7 +599,8 @@ def get_analytics_metrics():
             metrics = cursor.fetchall()
             return jsonify({"success": True, "metrics": metrics})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[GET_ANALYTICS_METRICS ERROR] {e}")
+        return jsonify({"error": "Internal server error"}), 500
     finally:
         conn.close()
 
@@ -586,7 +638,8 @@ def export_complaint_pdf(ref_id):
             output.seek(0)
             return send_file(output, download_name=f"GovConnect_{ref_id}.pdf", mimetype="application/pdf")
     except Exception as e:
-        return str(e), 500
+        print(f"[EXPORT_COMPLAINT_PDF ERROR] {e}")
+        return "Internal server error", 500
     finally:
         conn.close()
 
@@ -594,5 +647,5 @@ def export_complaint_pdf(ref_id):
 # imports `app` directly and their web server handles the port/host. Kept
 # here only for local testing.
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
+    port = int(os.environ.get('PORT', 5050))
     app.run(debug=True, host='0.0.0.0', port=port)
