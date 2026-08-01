@@ -646,6 +646,12 @@ def export_complaint_pdf(ref_id):
 # NOTE: On PythonAnywhere, this __main__ block never runs — the WSGI file
 # imports `app` directly and their web server handles the port/host. Kept
 # here only for local testing.
+#
+# ssl_context='adhoc' serves over HTTPS with a self-signed cert generated
+# on the fly (requires: pip install pyopenssl). Browsers will show a
+# "not private" warning on first visit — click through it once per
+# device/browser. This is what makes window.isSecureContext true so
+# geolocation works from a LAN IP like https://192.168.1.44:5050.
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5050))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=port, ssl_context='adhoc')
